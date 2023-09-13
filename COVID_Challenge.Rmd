@@ -1,0 +1,126 @@
+---
+title: "COVID-19 Programming Challenge"
+author: "Andrew Kalweit"
+date: "2023-09-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Download and Setup Data
+
+library(dplyr)
+
+First, we read the Dataset sheet into “R”, name it "data", and looked at a summary of columns to get a better sense of available variables.  I changed location and continent to factors in case we used during analysis, and for later visualization purposes.
+
+```{r}
+rm(list = ls())
+library(dplyr)
+data <- read.csv("https://covid.ourworldindata.org/data/owid-covid-data.csv", na.strings = "", header=T)
+
+#Look up the parameters available in the data
+summary(data)
+unique(data$date)
+
+#change continent, location to factors and assess the available countries and continent labels.
+data$location <- factor(data$location)
+data$continent <- factor(data$continent)
+levels(data$location)
+levels(data$continent)
+```
+
+## Developing an interesting and significant Model
+
+I was interested in exploring a relationship between stringency of distancing measures (lockdown, etc) and smoking status in women.  Can we show an interesting and significant relationship between smoking status and lockdowns?  Like a good p-hacker, my goal was to find something interesting and work backwards to justify.
+
+To do so, I limited the data set first to look for a significant relationship between the proportion of a country's female population that is a smoker and the stringency of that government's when implementing social distancing measures.  I did the same looking for female smoking and excess mortality.  On both, I looked for unique days where there might be an interesting explanation to catch a readers attention (instead of specifying an apriori hypothesis).
+
+```{r}
+res <- NULL
+for (i in 1:length(unique(data$date))){
+  data1 <- data[which((data$date==unique(data$date)[i])),]
+  data1 <- data1 %>% select("iso_code","date","female_smokers", "stringency_index", "excess_mortality")
+  if (sum(rowSums(!is.na(data1[,3:5]))==3)>=10){
+    res <- rbind(res, c(unique(data$date)[i],
+                        cor.test(data1[,3],data1[,4])$estimate,
+                        cor.test(data1[,3],data1[,4])$p.value))
+  }}
+
+res[which((as.numeric(res[,2])>0)& (as.numeric(res[,3])<=0.05)),]
+
+res <- NULL
+for (i in 1:length(unique(data$date))){
+  data1 <- data[which((data$date==unique(data$date)[i])),]
+  data1 <- data1 %>% select("iso_code","date","female_smokers", "stringency_index", "excess_mortality")
+  if (sum(rowSums(!is.na(data1[,3:5]))==3)>=10){
+    res <- rbind(res, c(unique(data$date)[i],
+                        cor.test(data1[,3],data1[,5])$estimate,
+                        cor.test(data1[,3],data1[,5])$p.value))
+  }}
+
+res[which((as.numeric(res[,2])>0)& (as.numeric(res[,3])<=0.05)),]
+```
+
+## Narrowing down to New Year's Eve 2020
+
+I noticed that there was a significant correlation between a countries proportion of female smokers and the stringency of a governments response on the first New Year's Even during the pandemic (a holiday broadly celebrated in many countries).  Also female smoking was related to excess mortality in a country (which makes some sense given smoking might be related to hightened severity or complications of COVID-19).
+
+Therefore, I ran a regression between female smokers and excess mortality specific to countries on that day.  I made a linear model for the correlated variables to establish an relationship on New Year's eve to form the basis of my arguement. 
+
+```{r}
+dataNYE <- data[which((data$date=="2020-12-31")),]
+summary(dataNYE)
+unique(dataNYE$date)
+
+model <- lm(female_smokers ~ stringency_index, dataNYE)
+summary(model)
+plot(female_smokers ~ stringency_index, dataNYE)
+```
+
+# Cherry-picking what to display.
+
+Lastly, seeing that smoking is related to stringency, I wanted to show that excess mortality is predicted by female smoking rate, even when controlling for the stringency of a government's response.  This helps me argue that the excess mortality of the pandemic is more due to smoking, and NOT mediated by social distancing.  I tested this to see if it worked at giving me a p-value <..05 before deciding whether to report it.
+
+Two notes: (1) excess mortality isn't a great variable to select if I were really serious because its missing in the vast majority of countries compared to my other analyses and limits my power (but this works in my favor for finding significance here) and (2) I cherry picked ONLY these 3 variables to get an interesting arguement to report without doing the work of actually systemically picking and testing a hypothesis (as per the assignment).
+
+```{r}
+cor.test(dataNYE$female_smokers, dataNYE$excess_mortality)
+m<-lm(excess_mortality ~ female_smokers + stringency_index, dataNYE)
+summary(m)
+```
+
+## P-HACKED Conclusions & Rationale:
+
+Finally, I (1) graphed the linear model of my main relationship (with a misleading/strongly worded title to really sell it), (2) ran a cherry-picked linear model to show "no significant" predictors for the stringency index, and (3) and wrote a (logically unsound) arguement stitching it all together based on this cherry-picked set of analysis:
+
+```{r, echo=FALSE}
+library(ggplot2)
+library(ggrepel)
+ggplot(dataNYE, aes(x=stringency_index, y = female_smokers, label=location)) +
+  labs(x="Stringency Index", y="Proportion of a Countries Females that Smoke", 
+       title = "Smoking Rates of Women based on New Year's Eve 'Lockdown' Measures") +
+  geom_point(aes(color=continent), size = 2) +
+  geom_abline(intercept=1.4687, slope=0.1534) +
+  geom_text_repel()
+```
+
+```{r}
+model2 <- lm(stringency_index ~ new_cases_smoothed_per_million + icu_patients_per_million + hosp_patients_per_million + 
+               positive_rate, dataNYE)
+summary(model2)
+```
+
+
+## Final Arguement
+
+Across the world, women were more likely to smoke on the first New Year's Eve during the COVID-19 pandemic if their government had a more stringent response to the pandemic.  
+
+During 2020, stringent governments implemented more a more complete array of school closures, workplace closures, cancellation of public events, restrictions on public gatherings, closures of public transport, stay-at-home requirements, public information campaigns, restrictions on internal movements, and international travel controls.  Because of this, we hypothesized that women living in "stricter" governments were more likely to smoke in response to the social stressors related COVID-19 pandemic due staying at home, tending to household responsibilities, and missing out on "relaxing" social events such as New Year's Eve (a commonly celebrated social holiday across many countries).
+
+In fact, our data-based linear model significantly predicted that female smoking rates in a country were related to Oxford Coronavirus Government Response Tracker's (OxCGRT) Stringency index scale on New Years Eve 2020 (p-value = 0.00276). For every 1 point increase in the stringency index, an additional 0.1534% of a country's female population were smokers. This means that countries that were 50 pts more strict on this index were predicted to have an additional 7.67% of their women smoking on New Year's Eve in 2020.
+
+Furthermore, excess mortality in a country (per million population) was significantly predicted in a linear model by female smoking rates (p = 0.0169) when controlling for the stringency of the countries government response (which was NOT significant with p > 0.05). This suggests that country's unusual rates of mortality during the COVID-19 pandemic were more likely due to chronic behavioral risk factors and morbidity caused by complication of increased smoking than it was impacted by government responses taken to prevent the spread of COVID-19. Lastly, a country's stringency index on New Year's Eve 2020 was not significantly predicted in a linear model by the country's number of ICU patients, new cases, or hospitalization rate (per million) (all p>.27). This suggests that a country's strictness was not actually related to the strength of their COVID-19 response measures. 
+
+Excess mortality was predicted by female smoking rates, and these rates were predicted by a government's stringency on New Years Eve 2020. This analysis suggests that, across the world, it may have been better for a country's pandemic-era mortality to focus on discouraging harmful health behvaiors such as smoking instead of prevention via social distancing, and that lockdown measures may have had counter-productive effects.
